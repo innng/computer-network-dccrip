@@ -1,5 +1,5 @@
 import socket
-
+import sys
 
 def main():
     print()
@@ -46,7 +46,7 @@ class ClientSocket:
     # tratamento de erros
     def logExit(self, msg):
         self.sock.close()
-sys.exit(msg)
+        sys.exit(msg)
 
 if __name__ == "__main__":
     main()
