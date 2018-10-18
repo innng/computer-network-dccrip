@@ -14,8 +14,8 @@ class Router:
     tout = 0
     # socket
     sock = None
-    # tabela de rotas conhecidas
-    linkTable = {'dest': [], 'gateway': [], 'weight': []}
+    # tabela de rotas
+    linkTable = {}
 
     # inicializa roteador
     def __init__(self, args):
@@ -34,6 +34,11 @@ class Router:
         if args.config:
             self.setInitialConfig(args.config)
 
+    # recebe input via stdin
+    def commandLine(self):
+        string = input('~ ')
+        self.parseCommand(string)
+
     # extrai topologia do arquivo
     def setInitialConfig(self, filename):
         with open(filename, 'r') as fp:
@@ -42,30 +47,22 @@ class Router:
             for ln in lines:
                 self.parseCommand(ln)
 
-    # inicia execução do roteador
-    def start(self):
-        while True:
-            self.commandLine()
-            print(self.linkTable)
-
     # extrai informações de comandos do arquivo e stdin
     def parseCommand(self, command):
         cmd = command.split(' ')
         cmd = [x.strip() for x in cmd if len(x) > 0]
 
         if cmd[0] == 'add':
-            if cmd[1] not in self.linkTable['dest']:
+            if cmd[1] not in self.linkTable:
                 if len(cmd) == 3:
                     self.addLink(cmd[1], cmd[2])
                 else:
-                    self.addLink(cmd[1])
+                    self.linkTable(cmd[1])
             else:
-                print('IP já existe na tabela')
+                print('IP já existe!')
         elif cmd[0] == 'del':
-            if cmd[1] in self.linkTable['dest']:
+            if cmd[1] in self.linkTable:
                 self.rmvLink(cmd[1])
-            else:
-                print('IP não existe na tabela')
         elif cmd[0] == 'trace':
             print()
         elif cmd[0] == 'quit':
@@ -75,23 +72,11 @@ class Router:
         else:
             print('Comando inválido')
 
-    # recebe input via stdin
-    def commandLine(self):
-        string = input('~ ')
-        self.parseCommand(string)
-
-    # adiciona um link na tabela
-    def addLink(self, d, w=1, g=None):
-        self.linkTable['dest'].append(d)
-        self.linkTable['gateway'].append(g)
-        self.linkTable['weight'].append(w)
-
-    # remove um link da tabela
-    def rmvLink(self, d):
-        index = self.linkTable['dest'].index(d)
-        self.linkTable['dest'].pop(index)
-        self.linkTable['gateway'].pop(index)
-        self.linkTable['weight'].pop(index)
+    # inicia execução do roteador
+    def start(self):
+        while True:
+            self.commandLine()
+            print(self.linkTable)
 
     def buildMessage(self, d, t, pl=None, dist=None, hp=None):
         msg = {
@@ -106,9 +91,26 @@ class Router:
             msg.update({'distances': dist})
         elif t == 'trace':
             hp.append(self.host)
-            msg.update({'hops': })
+            msg.update({'hops': hp})
 
         return msg
+
+    # adiciona um novo link
+    def addLink(self, d, w=1, gw=None):
+        self.linkTable[d] = {}
+        if gw:
+            self.linkTable[d]['gateway'] = list(gw)
+        else:
+            self.linkTable[d]['gateway'] = list()
+        self.linkTable[d]['weight'] = w
+
+    # remove um link
+    def rmvLink(self, d):
+        del self.linkTable[d]
+
+    # atualiza link
+    def updLink(self, gw=None, w=1):
+        pass
 
 
 def main():
