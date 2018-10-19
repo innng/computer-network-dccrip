@@ -12,7 +12,7 @@ class Router:
     host = ''
     # tamanho do temporizador entre mensagens de update
     tout = 0
-    # socket
+    # socket UDP
     sock = None
     # tabela de rotas
     linkTable = {}
@@ -60,15 +60,20 @@ class Router:
                     self.linkTable(cmd[1])
             else:
                 print('IP já existe!')
+
         elif cmd[0] == 'del':
             if cmd[1] in self.linkTable:
                 self.rmvLink(cmd[1])
+
         elif cmd[0] == 'trace':
             print()
+
         elif cmd[0] == 'quit':
             sys.exit()
+
         elif cmd[0] == 'debug':
             print()
+
         else:
             print('Comando inválido')
 
@@ -78,10 +83,10 @@ class Router:
             self.commandLine()
             print(self.linkTable)
 
-    def buildMessage(self, d, t, pl=None, dist=None, hp=None):
+    def buildMessage(self, s, d, t, pl=None, dist=None, hp=None):
         msg = {
             'type': t,
-            'source': self.host,
+            'source': s,
             'destination': d
         }
 
@@ -109,8 +114,15 @@ class Router:
         del self.linkTable[d]
 
     # atualiza link
-    def updLink(self, gw=None, w=1):
-        pass
+    def updLink(self, d, gw, w=1):
+        if self.linkTable[d]['weight'] < w:
+            self.linkTable['gateway'] = list(gw)
+            self.linkTable['weight'] = w
+
+        elif self.linkTable[d]['weight'] > w:
+            return
+        else:
+            self.linkTable['gateway'].append(gw)
 
 
 def main():
