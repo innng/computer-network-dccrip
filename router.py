@@ -3,7 +3,7 @@
 import argparse
 import socket
 import sys
-
+import select
 
 class Router:
     # porta padrão
@@ -57,7 +57,7 @@ class Router:
                 if len(cmd) == 3:
                     self.addLink(cmd[1], cmd[2])
                 else:
-                    self.linkTable(cmd[1])
+                    self.addLink(cmd[1])
             else:
                 print('IP já existe!')
 
@@ -79,9 +79,20 @@ class Router:
 
     # inicia execução do roteador
     def start(self):
-        while True:
-            self.commandLine()
-            print(self.linkTable)
+        # while True:
+        #     self.commandLine()
+        #     print(self.linkTable)
+
+        while(True):
+            events, _, _ = select.select([sys.stdin, self.sock],[],[],)
+
+            for event in events:
+                if event is self.sock: # Evento disparado é socket
+                    # Receber o update??
+                    return # tira isso
+                else: # Evento disparado é entrada do cli
+                    # Receber alguma mensagem??
+                    return # tira isso
 
     def buildMessage(self, s, d, t, pl=None, dist=None, hp=None):
         msg = {
@@ -123,6 +134,10 @@ class Router:
             return
         else:
             self.linkTable['gateway'].append(gw)
+    
+    def logExit(self, msg):
+        self.sock.close()
+        sys.exit(msg)
 
 
 def main():
