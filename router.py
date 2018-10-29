@@ -99,7 +99,10 @@ class Router:
                 print('Vizinho não existe')
 
         elif cmd[0] == 'trace':
-            pass
+            if len(cmd) != 2:
+                print('Comando inválido')
+            msg = self.buildMessage('trace', self.host, cmd[1])
+            self.sendMessage(msg, cmd[1])
 
         elif cmd[0] == 'quit':
             self.running.clear()
@@ -174,8 +177,8 @@ class Router:
         else:
             self.routingTable[ip]['hops'].append(hop)
 
-    # constroi mensagens
-    def buildMessage(self, tp, src, dest, pl=None, dist=None):
+    # constroi mensagem inicial
+    def buildMessage(self, tp, src, dest, pl=None, dist=None, hops=[]):
         msg = {
             'type': tp,
             'source': src,
@@ -187,7 +190,8 @@ class Router:
         elif tp == 'update':
             msg.update({'distances': dist})
         elif tp == 'trace':
-            pass
+            hops.append(self.host)
+            msg.update({'hops': hops})
 
         return msg
 
@@ -196,10 +200,7 @@ class Router:
         for ip in self.linkingTable:
             distances = self.buildDistanceDict(ip)
             updMsg = self.buildMessage('update', self.host, ip, dist=distances)
-
-            updMsg = json.dumps(updMsg)
-            pkg = bytes(updMsg, 'ascii')
-            self.sock.sendto(pkg, (ip, self.port))
+            self.sendMessage(updMsg, ip)
 
         self.updateTimer = self.setTimer(self.sendUpdate)
         self.updateTimer.start()
@@ -219,6 +220,11 @@ class Router:
     def forwardMessage(self, msg):
         # separa o ip do destinatário
         ip = msg['destination']
+
+        # descarta mensagem se não existe caminho para o destinatário
+        if ip not in self.routingTable:
+            return
+
         # separa por qual gateway deve passar a mensagem
         nextHop = self.routingTable[ip]['nextHop']
         # separa o gateway pelo qual essa mensagem vai passar
@@ -230,9 +236,13 @@ class Router:
         if self.routingTable[ip]['nextHop'] > len(self.routingTable[ip]['hops']):
             self.routingTable[ip]['nextHop'] = 0
 
+        self.sendMessage(msg, hop)
+
+    # envia uma mensagem para um destinatário
+    def sendMessage(self, msg, ip):
         msg = json.dumps(msg)
         pkg = bytes(msg, 'ascii')
-        self.sock.sendto(pkg, (hop, self.port))
+        self.sock.sendto(pkg, (ip, self.port))
 
     # thread que controla recebimento de comandos via teclado
     def cliThread(self):
