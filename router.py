@@ -114,7 +114,7 @@ class Router:
         else:
             print('Comando inválido')
 
-        # adiciona novo vizinho à tabela de links
+    # adiciona novo vizinho à tabela de links
     def addLink(self, ip, weight):
         self.linkingTable[ip] = {}
         self.linkingTable[ip]['weight'] = int(weight)
@@ -240,12 +240,71 @@ class Router:
             line = input('~ ')
             self.parseLinkCommand(line)
 
+    # trata as mensagens recebidas
+    def parseMessage(self, data, sourceAddr):
+        msg = json.loads(data.decode())
+
+        if msg['type'] == 'update':
+            # Pega os IPs e pesos do vetor distances da msg de update
+            for ip, weight in msg['distances'].items():
+                # Já está na tabela de roteamento
+                if ip in self.routingTable:
+                    # Ve se o link existe na tabela
+                    if sourceAddr[0] in self.linkingTable:
+                        currentWeight = int(self.linkingTable[sourceAddr[0]])
+                        knownWeight = self.routingTable[ip]['weight']
+
+                        if (weight + currentWeight) < knownWeight:
+                            self.routingTable[ip]['weight'] = int(weight) + currentWeight
+                            self.routingTable[ip]['hops'] = []
+                            self.routingTable[ip]['hops'].append([sourceAddr[0]])
+                        elif (weight + currentWeight) == knownWeight:
+                            hopIPs = []
+                            for hopIP in self.routingTable[ip]['hops']:
+                                hopIPs.append(hopIP)
+                            if sourceAddr[0] not in hopIPs:
+                                self.routingTable[ip]['hops'].append(sourceAddr[0])
+                # Não está na tabela de roteamento
+                else:
+                    self.routingTable[ip] = {}
+                    self.routingTable[ip]['weight'] = int(weight) + int(self.linkingTable[sourceAddr[0]])
+                    self.routingTable[ip]['hops'] = []
+                    self.routingTable[ip]['hops'].append(sourceAddr[0])
+
+                # update TTL /\/\/\/\/\/\/\
+        elif msg['type'] == 'data':
+            if msg['destination'] == self.host:
+                # Esse nó é o destino, mensagem recebida.
+                print(msg['payload'])
+            else:
+                self.forwardMessage(msg)
+            pass
+        elif msg['type'] == 'trace':
+
+            pass
+
+        pass
+'''
+    def findNextHop(self, destination):
+        nextHops = self.routingTable[destination]['hops']
+        # Se tiver mais de um hop possível faz o balanceamento de carga
+        # alternando entre os hops
+        if len(nextHops) > 1:
+            nextHop = nextHops[self.routingTable[destination]['nextHop']]
+            self.routingTable[destination]['nextHop'] += 1
+            if self.routingTable[destination]['nextHop'] > len(nextHops) - 1:
+                self.routingTable[destination]['nextHop'] = 0
+            return nextHop[0]
+
+        else:
+            return nextHops[0]
+'''
     # thread que controla recebimento de mensagens de update
     def recvThread(self):
         while self.running.isSet():
             try:
                 data, sourceAddr = self.sock.recvfrom(1024)
-                msg = json.loads(data.decode())
+                self.parseMessage(data, sourceAddr)
             except BlockingIOError:
                 pass
 
