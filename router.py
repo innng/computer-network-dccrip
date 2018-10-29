@@ -9,7 +9,7 @@ import sys
 
 class Router:
     # porta padrão
-    port = 55152
+    port = 55151
     # endereço de IP do roteador
     host = ''
     # período de alterações
@@ -24,10 +24,6 @@ class Router:
     linkingTable = {}
     # tabela de rotas
     routingTable = {}
-    # thread que recebe input do teclado
-    cli = None
-    # thread que recebe as mensagens de update
-    recvMsg = None
 
     # inicializa o roteador
     def __init__(self, args):
@@ -36,10 +32,13 @@ class Router:
 
         try:
             # cria socket UDP
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
             # associa o socket ao endereço de IP
             self.sock.bind((self.host, self.port))
+
+            # coloca o socket em modo não-blocante
+            self.sock.setblocking(False)
         except socket.error as error_msg:
             self.logExit(error_msg)
 
@@ -47,19 +46,27 @@ class Router:
         if args.startup:
             self.startupFile(args.startup)
 
+    # extrai configs do arquivo
+    def startupFile(self, filename):
+        with open(filename, 'r') as fp:
+            lines = fp.read().splitlines()
+
+        for ln in lines:
+            self.parseLinkCommand(ln)
+
     # inicia execução do roteador
     def start(self):
         # cria thread que recebe comandos do prompt
-        self.cli = threading.Thread(target=self.cliThread)
+        cli = threading.Thread(target=self.cliThread)
         # cria thread que espera por mensagens
-        self.recvMsg = threading.Thread(target=self.recvThread)
+        recvMsg = threading.Thread(target=self.recvThread)
         # cria evento que indica que roteador está executando
         self.running = threading.Event()
 
         # inicia threads
         self.running.set()
-        self.cli.start()
-        self.recvMsg.start()
+        cli.start()
+        recvMsg.start()
 
         # inicia o primeiro temporizador para enviar mensagens de update
         self.updateTimer = self.setTimer(self.sendUpdate)
@@ -70,15 +77,7 @@ class Router:
         self.updateRoute('127.0.1.2', '127.0.1.4', 2)
         self.updateRoute('127.0.1.3', '127.0.1.4', 1)
 
-    # extrai configs do arquivo
-    def startupFile(self, filename):
-        with open(filename, 'r') as fp:
-            lines = fp.read().splitlines()
-
-        for ln in lines:
-            self.parseLinkCommand(ln)
-
-    # extrain informações sobre vizinhos
+    # extraí informações sobre vizinhos
     def parseLinkCommand(self, cmd):
         cmd = cmd.split(' ')
         cmd = [x for x in cmd if len(x) > 0]
@@ -104,7 +103,6 @@ class Router:
 
         elif cmd[0] == 'quit':
             self.running.clear()
-            self.recvMsg.join()
             self.updateTimer.cancel()
 
             for ip in self.linkingTable:
@@ -116,7 +114,7 @@ class Router:
         else:
             print('Comando inválido')
 
-    # adiciona novo vizinho à tabela de links
+        # adiciona novo vizinho à tabela de links
     def addLink(self, ip, weight):
         self.linkingTable[ip] = {}
         self.linkingTable[ip]['weight'] = int(weight)
@@ -135,8 +133,8 @@ class Router:
     # adiciona um caminho à tabela de roteamento
     def addRoute(self, ip, hop, weight):
         self.routingTable[ip] = {}
-        self.routingTable[ip]['hop'] = []
-        self.routingTable[ip]['hop'].append(hop)
+        self.routingTable[ip]['hops'] = []
+        self.routingTable[ip]['hops'].append(hop)
         if ip != hop:
             self.routingTable[ip]['weight'] = int(weight) + self.linkingTable[hop]['weight']
         else:
@@ -152,9 +150,9 @@ class Router:
         # remove todos os caminhos que eram possíveis via ip
         ips = []
         for i in self.routingTable:
-            if ip in self.routingTable[i]['hop']:
-                self.routingTable[i]['hop'].remove(ip)
-            if len(self.routingTable[i]['hop']) == 0:
+            if ip in self.routingTable[i]['hops']:
+                self.routingTable[i]['hops'].remove(ip)
+            if len(self.routingTable[i]['hops']) == 0:
                 ips.append(i)
 
         # remove os nodos inalcançáveis
@@ -174,9 +172,9 @@ class Router:
             pass
         # se custo é igual, adiciona gateway
         else:
-            self.routingTable[ip]['hop'].append(hop)
+            self.routingTable[ip]['hops'].append(hop)
 
-    # constroi mensagens
+        # constroi mensagens
     def buildMessage(self, tp, src, dest, pl=None, dist=None):
         msg = {
             'type': tp,
@@ -193,51 +191,14 @@ class Router:
 
         return msg
 
-    # thread que controla recebimento de comandos via teclado
-    def cliThread(self):
-        while self.running.isSet():
-            line = input('~ ')
-            self.parseLinkCommand(line)
-
-    # thread que controla recebimento de mensagens de update
-    def recvThread(self):
-        while self.running.isSet():
-            data, sourceAddr = self.sock.recvfrom(1024)
-            msg = json.loads(data.decode())
-
-            # Ve qual o tipo da mensagem
-            if msg['type'] == 'update':
-                # Pega os IPs e pesos do vetor distances da msg de update
-                for ip, weight in msg['distances'].items():
-                    if ip in self.routingTable:
-                        # Vê se o link existe na tabela
-                        if sourceAddr[0] in self.linkingTable:
-                            currentWeight = int(self.linkingTable[sourceAddr[0]])
-                            knownWeight = self.routingTable[ip]['weight']
-
-                            if (weight + currentWeight) < knownWeight:
-                                self.routingTable[ip]['weight'] = weight + currentWeight
-                                self.routingTable[ip]['hop'] = []
-                                self.routingTable[ip]['hop'].append([sourceAddr[0]])
-                            elif (weight + currentWeight) == knownWeight:
-                                hopIPs = []
-                                for hopIP in self.routingTable[ip]['hop']:
-                                    hopIPs.append(hopIP[0])
-                                if sourceAddr[0] not in hopIPs:
-                                    self.routingTable[ip]['hop'].append(sourceAddr)
-                    else:
-                        pass
-                        # ////////////////////////
-            elif msg['type'] == 'trace':
-                pass
-            elif msg['type'] == 'data':
-                pass
-
-#     '127.0.1.2': {
-#         'hop': ['127.0.1.2']
-#         'weight': 2,
-#         'nextHop': 0
-#     },
+    # trata a mensagem recebida
+    def parseMessage(self, msg):
+        if msg['type'] == 'data':
+            pass
+        elif msg['type'] == 'update':
+            pass
+        elif msg['type'] == 'trace':
+            pass
 
     # envia mensagem de update
     def sendUpdate(self):
@@ -262,6 +223,21 @@ class Router:
                     dist.update({key: self.routingTable[key]['weight']})
 
         return dist
+
+    # thread que controla recebimento de comandos via teclado
+    def cliThread(self):
+        while self.running.isSet():
+            line = input('~ ')
+            self.parseLinkCommand(line)
+
+    # thread que controla recebimento de mensagens de update
+    def recvThread(self):
+        while self.running.isSet():
+            try:
+                data, sourceAddr = self.sock.recvfrom(1024)
+                msg = json.loads(data.decode())
+            except BlockingIOError:
+                pass
 
     # retorna um objeto Timer
     def setTimer(self, fn, argList=[], multiplier=1):

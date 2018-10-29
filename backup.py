@@ -60,3 +60,53 @@
     # '127.0.1.1': 7,
     # '127.0.1.3': 3,
 # }
+
+
+# thread que controla recebimento de mensagens de update
+def recvThread(self):
+    while self.running.isSet():
+        data, sourceAddr = self.sock.recvfrom(1024)
+        msg = json.loads(data.decode())
+
+        # Ve qual o tipo da mensagem
+        if msg['type'] == 'update':
+            # Pega os IPs e pesos do vetor distances da msg de update
+            for ip, weight in msg['distances'].items():
+                if ip in self.routingTable:
+                    # V? se o link existe na tabela
+                    if sourceAddr[0] in self.linkingTable:
+                        currentWeight = int(self.linkingTable[sourceAddr[0]])
+                        knownWeight = self.routingTable[ip]['weight']
+
+                        if (weight + currentWeight) < knownWeight:
+                            self.routingTable[ip]['weight'] = weight + currentWeight
+                            self.routingTable[ip]['hop'] = []
+                            self.routingTable[ip]['hop'].append([sourceAddr[0]])
+                        elif (weight + currentWeight) == knownWeight:
+                            hopIPs = []
+                            for hopIP in self.routingTable[ip]['hop']:
+                                hopIPs.append(hopIP[0])
+                            if sourceAddr[0] not in hopIPs:
+                                self.routingTable[ip]['hop'].append(sourceAddr)
+                    pass
+                else:
+                    pass
+                # ////////////////////////
+        elif msg['type'] == 'trace':
+            pass
+        elif msg['type'] == 'data':
+            pass
+
+#     '127.0.1.2': {
+#         'hop': ['127.0.1.2']
+#         'weight': 2,
+#         'nextHop': 0
+#     },
+
+
+
+
+
+
+
+
