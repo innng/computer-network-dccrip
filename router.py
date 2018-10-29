@@ -3,26 +3,31 @@
 import threading
 import argparse
 import socket
+import json
 import sys
 
 
 class Router:
     # porta padrão
-    port = 55151
+    port = 55152
     # endereço de IP do roteador
     host = ''
     # período de alterações
     tout = 0
     # socket UDP
     sock = None
-    # timer para envio de mensagens de update
-    updTimer = None
-    # evento para controlar execução
+    # indica se roteador está executando
     running = None
+    # timer para envio de mensagens de update
+    updateTimer = None
     # tabela de links
-    links = {}
+    linkingTable = {}
     # tabela de rotas
     routingTable = {}
+    # thread que recebe input do teclado
+    cli = None
+    # thread que recebe as mensagens de update
+    recvMsg = None
 
     # inicializa o roteador
     def __init__(self, args):
@@ -38,27 +43,32 @@ class Router:
         except socket.error as error_msg:
             self.logExit(error_msg)
 
-        self.running = threading.Event()
-
+        # utiliza configuração do arquivo se este foi especificado
         if args.startup:
             self.startupFile(args.startup)
 
-    # inicia a execução do roteador
+    # inicia execução do roteador
     def start(self):
-        # envia primeira mensagem de update com os links do arquivo de startup
-        if len(self.links) > 0:
-            self.sendUpdate()
+        # cria thread que recebe comandos do prompt
+        self.cli = threading.Thread(target=self.cliThread)
+        # cria thread que espera por mensagens
+        self.recvMsg = threading.Thread(target=self.recvThread)
+        # cria evento que indica que roteador está executando
+        self.running = threading.Event()
 
-        # inicia a thread que recebe comandos do prompt
-        cli = threading.Thread(target=self.cliThread)
-        # cli.start()
-
-        # inicia a thread que espera por mensagens
-        get = threading.Thread(target=self.getThread)
-        # get.start()
-
-        # evento que avisa que o roteador está rodando
+        # inicia threads
         self.running.set()
+        self.cli.start()
+        self.recvMsg.start()
+
+        # inicia o primeiro temporizador para enviar mensagens de update
+        self.updateTimer = self.setTimer(self.sendUpdate)
+        self.updateTimer.start()
+
+        self.updateRoute('127.0.1.4', '127.0.1.2', 2)
+        self.updateRoute('127.0.1.4', '127.0.1.3', 1)
+        self.updateRoute('127.0.1.2', '127.0.1.4', 2)
+        self.updateRoute('127.0.1.3', '127.0.1.4', 1)
 
     # extrai configs do arquivo
     def startupFile(self, filename):
@@ -74,43 +84,97 @@ class Router:
         cmd = [x for x in cmd if len(x) > 0]
 
         if cmd[0] == 'add':
-            if cmd[1] not in self.links:
+            if len(cmd) != 3:
+                print('Comando inválido')
+            elif cmd[1] not in self.linkingTable:
                 self.addLink(cmd[1], cmd[2])
             else:
                 print('Vizinho já existe')
+
         elif cmd[0] == 'del':
-            if cmd[1] in self.links:
+            if len(cmd) != 2:
+                print('Comando inválido')
+            elif cmd[1] in self.linkingTable:
                 self.rmvLink(cmd[1])
             else:
                 print('Vizinho não existe')
+
         elif cmd[0] == 'trace':
             pass
+
         elif cmd[0] == 'quit':
-            sys.exit()
-        elif cmd[0] == 'debug':
-            pass
+            self.running.clear()
+            self.recvMsg.join()
+            self.updateTimer.cancel()
+
+            for ip in self.linkingTable:
+                self.linkingTable[ip]['timer'].cancel()
+
+        elif cmd[0] == 'log':
+            print('links -->', self.linkingTable)
+            print('rotas -->', self.routingTable)
         else:
             print('Comando inválido')
 
-    # thread que roda a cli
-    def cliThread(self):
-        while self.running.is_set:
-            line = input('~ ')
-            self.parseLinkCommand(line)
-
-    # adiciona novo vizinho à lista de links
+    # adiciona novo vizinho à tabela de links
     def addLink(self, ip, weight):
-        self.links[ip] = {}
-        self.links[ip]['weight'] = int(weight)
-        self.links[ip]['timer'] = self.setTimer(self.rmvLink, [ip], 4)
-        self.links[ip]['timer'].start()
+        self.linkingTable[ip] = {}
+        self.linkingTable[ip]['weight'] = int(weight)
+        self.linkingTable[ip]['timer'] = self.setTimer(self.rmvLink, [ip], 4)
+        self.linkingTable[ip]['timer'].start()
 
-        if self.running.is_set:
-            self.sendUpdate()
+        self.addRoute(ip, ip, weight)
 
     # remove vizinho
     def rmvLink(self, ip):
-        del self.links[ip]
+        self.linkingTable[ip]['timer'].cancel()
+        del self.linkingTable[ip]
+
+        self.rmvRoute(ip)
+
+    # adiciona um caminho à tabela de roteamento
+    def addRoute(self, ip, hop, weight):
+        self.routingTable[ip] = {}
+        self.routingTable[ip]['hop'] = []
+        self.routingTable[ip]['hop'].append(hop)
+        if ip != hop:
+            self.routingTable[ip]['weight'] = int(weight) + self.linkingTable[hop]['weight']
+        else:
+            self.routingTable[ip]['weight'] = int(weight)
+        self.routingTable[ip]['nextHop'] = 0
+
+    # remove um caminho
+    def rmvRoute(self, ip):
+        # testa se o ip está na tabela como destino
+        if ip in self.routingTable:
+            del self.routingTable[ip]
+
+        # remove todos os caminhos que eram possíveis via ip
+        ips = []
+        for i in self.routingTable:
+            if ip in self.routingTable[i]['hop']:
+                self.routingTable[i]['hop'].remove(ip)
+            if len(self.routingTable[i]['hop']) == 0:
+                ips.append(i)
+
+        # remove os nodos inalcançáveis
+        for i in range(len(ips)):
+            del self.routingTable[ips[i]]
+
+    # atualiza um caminho existente
+    def updateRoute(self, ip, hop, weight):
+        weight += self.linkingTable[hop]['weight']
+
+        # se custo é menor, substitui
+        if self.routingTable[ip]['weight'] > weight:
+            del self.routingTable[ip]
+            self.addRoute(ip, hop, weight)
+        # se custo é maior, ignora
+        elif self.routingTable[ip]['weight'] < weight:
+            pass
+        # se custo é igual, adiciona gateway
+        else:
+            self.routingTable[ip]['hop'].append(hop)
 
     # constroi mensagens
     def buildMessage(self, tp, src, dest, pl=None, dist=None):
@@ -129,42 +193,79 @@ class Router:
 
         return msg
 
-    # constroi dicionário de distâncias das mensagens de update, usando split horizon
-    def buildDistDict(self, ip):
-        dist = {}
+    # thread que controla recebimento de comandos via teclado
+    def cliThread(self):
+        while self.running.isSet():
+            line = input('~ ')
+            self.parseLinkCommand(line)
 
-        for key in self.links:
-            if key != ip:
-                dist[key] = self.links[key]['weight']
+    # thread que controla recebimento de mensagens de update
+    def recvThread(self):
+        while self.running.isSet():
+            data, sourceAddr = self.sock.recvfrom(1024)
+            msg = json.loads(data.decode())
 
-        return dist
+            # Ve qual o tipo da mensagem
+            if msg['type'] == 'update':
+                # Pega os IPs e pesos do vetor distances da msg de update
+                for ip, weight in msg['distances'].items():
+                    if ip in self.routingTable:
+                        # Vê se o link existe na tabela
+                        if sourceAddr[0] in self.linkingTable:
+                            currentWeight = int(self.linkingTable[sourceAddr[0]])
+                            knownWeight = self.routingTable[ip]['weight']
+
+                            if (weight + currentWeight) < knownWeight:
+                                self.routingTable[ip]['weight'] = weight + currentWeight
+                                self.routingTable[ip]['hop'] = []
+                                self.routingTable[ip]['hop'].append([sourceAddr[0]])
+                            elif (weight + currentWeight) == knownWeight:
+                                hopIPs = []
+                                for hopIP in self.routingTable[ip]['hop']:
+                                    hopIPs.append(hopIP[0])
+                                if sourceAddr[0] not in hopIPs:
+                                    self.routingTable[ip]['hop'].append(sourceAddr)
+                    else:
+                        pass
+                        # ////////////////////////
+            elif msg['type'] == 'trace':
+                pass
+            elif msg['type'] == 'data':
+                pass
+
+#     '127.0.1.2': {
+#         'hop': ['127.0.1.2']
+#         'weight': 2,
+#         'nextHop': 0
+#     },
 
     # envia mensagem de update
     def sendUpdate(self):
-        for ip in self.links:
-            distances = self.buildDistDict(ip)
+        for ip in self.linkingTable:
+            distances = self.buildDistanceDict(ip)
             updMsg = self.buildMessage('update', self.host, ip, dist=distances)
 
+            updMsg = json.dumps(updMsg)
             pkg = bytes(updMsg, 'ascii')
             self.sock.sendto(pkg, (ip, self.port))
 
-        self.updTimer.cancel()
-        self.updTimer = self.setTimer(self.sendUpdate)
-        self.updTimer.start()
+        self.updateTimer = self.setTimer(self.sendUpdate)
+        self.updateTimer.start()
 
-    # thread que espera por pacotes
-    def getThread(self):
-        while self.running.is_set:
-            pass
+    # constroi dicionário de distâncias, usando split horizon
+    def buildDistanceDict(self, ip):
+        dist = {}
 
-    # atualiza tabela de roteamento
-    def updateTable(self):
-        pass
+        for key in self.routingTable:
+            if ip != key:
+                if len(self.routingTable[key]['hop']) > 1 or ip not in self.routingTable[key]['hop']:
+                    dist.update({key: self.routingTable[key]['weight']})
+
+        return dist
 
     # retorna um objeto Timer
     def setTimer(self, fn, argList=[], multiplier=1):
         timer = threading.Timer(self.tout * multiplier, fn, argList)
-
         return timer
 
     # tratamento de erros
