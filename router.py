@@ -191,15 +191,6 @@ class Router:
 
         return msg
 
-    # trata a mensagem recebida
-    def parseMessage(self, msg):
-        if msg['type'] == 'data':
-            print(msg['payload'])
-        elif msg['type'] == 'update':
-            pass
-        elif msg['type'] == 'trace':
-            pass
-
     # envia mensagem de update
     def sendUpdate(self):
         for ip in self.linkingTable:
@@ -223,6 +214,25 @@ class Router:
                     dist.update({key: self.routingTable[key]['weight']})
 
         return dist
+
+    # encaminha uma mensagem fazendo balanceamento de carga
+    def forwardMessage(self, msg):
+        # separa o ip do destinatário
+        ip = msg['destination']
+        # separa por qual gateway deve passar a mensagem
+        nextHop = self.routingTable[ip]['nextHop']
+        # separa o gateway pelo qual essa mensagem vai passar
+        hop = self.routingTable[ip]['hops'][nextHop]
+
+        # incrementa o hop para o balanceamento de cargas
+        self.routingTable[ip]['nextHop'] += 1
+        # se passou o número de gateways da lista, reseta contador
+        if self.routingTable[ip]['nextHop'] > len(self.routingTable[ip]['hops']):
+            self.routingTable[ip]['nextHop'] = 0
+
+        msg = json.dumps(msg)
+        pkg = bytes(msg, 'ascii')
+        self.sock.sendto(pkg, (hop, self.port))
 
     # thread que controla recebimento de comandos via teclado
     def cliThread(self):
