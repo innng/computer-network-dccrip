@@ -117,7 +117,7 @@ class Router:
         else:
             print('Comando inválido')
 
-        # adiciona novo vizinho à tabela de links
+    # adiciona novo vizinho à tabela de links
     def addLink(self, ip, weight):
         self.linkingTable[ip] = {}
         self.linkingTable[ip]['weight'] = int(weight)
