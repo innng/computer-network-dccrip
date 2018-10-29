@@ -174,7 +174,7 @@ class Router:
         else:
             self.routingTable[ip]['hops'].append(hop)
 
-        # constroi mensagens
+    # constroi mensagens
     def buildMessage(self, tp, src, dest, pl=None, dist=None):
         msg = {
             'type': tp,
@@ -194,7 +194,7 @@ class Router:
     # trata a mensagem recebida
     def parseMessage(self, msg):
         if msg['type'] == 'data':
-            pass
+            print(msg['payload'])
         elif msg['type'] == 'update':
             pass
         elif msg['type'] == 'trace':
@@ -219,7 +219,7 @@ class Router:
 
         for key in self.routingTable:
             if ip != key:
-                if len(self.routingTable[key]['hop']) > 1 or ip not in self.routingTable[key]['hop']:
+                if len(self.routingTable[key]['hops']) > 1 or ip not in self.routingTable[key]['hops']:
                     dist.update({key: self.routingTable[key]['weight']})
 
         return dist
