@@ -5,7 +5,6 @@ import argparse
 import socket
 import json
 import sys
-
 import pprint
 
 class Router:
@@ -276,12 +275,9 @@ class Router:
                     self.routingTable[ip]['weight'] = int(weight) + int(self.linkTable[sourceAddr[0]]['weight'])
                     self.routingTable[ip]['hops'] = []
                     self.routingTable[ip]['hops'].append(sourceAddr[0])
+                    self.routingTable[ip]['nextHop'] = 0
+
             #Reseta TTL
-            # for ip, weight in msg['distances'].items():
-                # routingTableRow = self.routingTable[ip]
-                # for hop in routingTableRow['hops']:
-                    # print("TESTE>>>>>", hop, sourceAddr[0])
-                    # if(hop == sourceAddr[0]):
             print("Atualizou o TTL de:", sourceAddr[0])
             self.linkTable[sourceAddr[0]]['ttl'] = 4
 
@@ -300,14 +296,6 @@ class Router:
             else:
                 msg['hops'].append(self.host)
                 self.forwardMessage(msg)
-        
-        # mensagem do tipo dados
-        # elif msg['type'] == 'data':
-        #     if msg['destination'] == self.host:
-        #         # esse nó é o destino, mensagem recebida.
-        #         print("Mensagem recebida:", msg['payload'])
-        #     else:
-        #         self.forwardMessage(msg)
 
         elif msg['type'] == 'trace':
             # esse nó é o destino do trace
