@@ -68,10 +68,10 @@ class Router:
         self.updateTimer = self.setTimer(self.sendUpdate)
         self.updateTimer.start()
 
-        self.updateRoute('127.0.1.4', '127.0.1.2', 2)
+        '''self.updateRoute('127.0.1.4', '127.0.1.2', 2)
         self.updateRoute('127.0.1.4', '127.0.1.3', 1)
         self.updateRoute('127.0.1.2', '127.0.1.4', 2)
-        self.updateRoute('127.0.1.3', '127.0.1.4', 1)
+        self.updateRoute('127.0.1.3', '127.0.1.4', 1)'''
 
 
     # extraí informações sobre vizinhos
@@ -193,7 +193,8 @@ class Router:
         elif tp == 'update':
             msg.update({'distances': dist})
         elif tp == 'trace':
-            pass
+            msg['hops'] = []
+            msg['hops'].append(self.host)
 
         return msg
 
@@ -303,6 +304,7 @@ class Router:
     def sendTrace(self, ip):
         update = {'type': 'trace', 'source': self.host, 'destination': ip, 'hops': []}
         update['hops'].append(update['source'])
+        print("Trace packet~ ", update)
         self.sock.sendto(json.dumps(update).encode(), (self.findNextHop(ip), self.port))
 
 
