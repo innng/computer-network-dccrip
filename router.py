@@ -8,6 +8,7 @@ import sys
 
 import pprint
 
+
 class Router:
     port = 55151        # porta padrão
     sock = None         # socket UDP
@@ -61,7 +62,7 @@ class Router:
         recvMsg.start()
 
         # inicia o primeiro temporizador para enviar mensagens de update
-        self.updateTimer = self.setTimer(self.sendUpdate)
+        self.updateTimer = self.setTimer(self.controlPanel)
         self.updateTimer.start()
 
     # extraí informações sobre vizinhos
@@ -205,17 +206,17 @@ class Router:
             debugPrint = updMsg
             updMsg = json.dumps(updMsg)
             pkg = bytes(updMsg, 'ascii')
-            if updMsg != None: 
+            if updMsg != None:
                 print("Update sent: ", end='')
                 pprint.pprint(debugPrint)
             self.sock.sendto(pkg, (ip, self.port))
 
-        self.updateTimer.cancel()
-        self.updateTimer = self.setTimer(self.sendUpdate)
-        self.updateTimer.start()
+        # self.updateTimer.cancel()
+        # self.updateTimer = self.setTimer(self.sendUpdate)
+        # self.updateTimer.start()
 
-        # diminui o ttl dos vizinhos
-        self.controlLinks()
+        # # diminui o ttl dos vizinhos
+        # self.controlLinks()
 
     # constroi dicionário de distâncias, usando split horizon
     def buildDistanceDict(self, ip):
@@ -341,6 +342,13 @@ class Router:
             except BlockingIOError:
                 pass
 
+    def controlPanel(self):
+        self.sendUpdate()
+        self.controlLinks()
+
+        self.updateTimer = self.setTimer(self.controlPanel)
+        self.updateTimer.start()
+
     # controla os vizinhos baseado no ttl
     def controlLinks(self):
         # diminui o ttl de cada vizinho
@@ -356,8 +364,8 @@ class Router:
             self.rmvLink(ip)
 
     # retorna um objeto Timer
-    def setTimer(self, fn, argList=[], multiplier=1):
-        timer = threading.Timer(self.tout * multiplier, fn, argList)
+    def setTimer(self, fn, argList=[]):
+        timer = threading.Timer(self.tout, fn, argList)
         return timer
 
     # tratamento de erros
