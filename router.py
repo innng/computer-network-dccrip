@@ -96,14 +96,7 @@ class Router:
                 print('Vizinho não existe')
 
         elif cmd[0] == 'trace':
-<<<<<<< HEAD
             self.sendTrace(cmd[1])
-=======
-            if len(cmd) != 2:
-                print('Comando inválido')
-            msg = self.buildMessage('trace', self.host, cmd[1])
-            self.sendMessage(msg, cmd[1])
->>>>>>> bb072be2b1b7a4aae4506bb17c28efddd7a3933f
 
         elif cmd[0] == 'quit':
             self.running.clear()
@@ -118,10 +111,7 @@ class Router:
         else:
             print('Comando inválido')
 
-<<<<<<< HEAD
 
-=======
->>>>>>> bb072be2b1b7a4aae4506bb17c28efddd7a3933f
     # adiciona novo vizinho à tabela de links
     def addLink(self, ip, weight):
         self.linkTable[ip] = {}
@@ -189,14 +179,9 @@ class Router:
         else:
             self.routingTable[ip]['hops'].append(hop)
 
-<<<<<<< HEAD
 
     # constroi mensagens
     def buildMessage(self, tp, src, dest, pl=None, dist=None):
-=======
-    # constroi mensagem inicial
-    def buildMessage(self, tp, src, dest, pl=None, dist=None, hops=[]):
->>>>>>> bb072be2b1b7a4aae4506bb17c28efddd7a3933f
         msg = {
             'type': tp,
             'source': src,
@@ -208,8 +193,7 @@ class Router:
         elif tp == 'update':
             msg.update({'distances': dist})
         elif tp == 'trace':
-            hops.append(self.host)
-            msg.update({'hops': hops})
+            pass
 
         return msg
 
@@ -219,7 +203,10 @@ class Router:
         for ip in self.linkTable:
             distances = self.buildDistanceDict(ip)
             updMsg = self.buildMessage('update', self.host, ip, dist=distances)
-            self.sendMessage(updMsg, ip)
+
+            updMsg = json.dumps(updMsg)
+            pkg = bytes(updMsg, 'ascii')
+            self.sock.sendto(pkg, (ip, self.port))
 
         self.updateTimer = self.setTimer(self.sendUpdate)
         self.updateTimer.start()
@@ -241,11 +228,6 @@ class Router:
     def forwardMessage(self, msg):
         # separa o ip do destinatário
         ip = msg['destination']
-
-        # descarta mensagem se não existe caminho para o destinatário
-        if ip not in self.routingTable:
-            return
-
         # separa por qual gateway deve passar a mensagem
         nextHop = self.routingTable[ip]['nextHop']
         # separa o gateway pelo qual essa mensagem vai passar
@@ -257,13 +239,9 @@ class Router:
         if self.routingTable[ip]['nextHop'] > len(self.routingTable[ip]['hops']):
             self.routingTable[ip]['nextHop'] = 0
 
-        self.sendMessage(msg, hop)
-
-    # envia uma mensagem para um destinatário
-    def sendMessage(self, msg, ip):
         msg = json.dumps(msg)
         pkg = bytes(msg, 'ascii')
-        self.sock.sendto(pkg, (ip, self.port))
+        self.sock.sendto(pkg, (hop, self.port))
 
 
     # thread que controla recebimento de comandos via teclado
@@ -367,7 +345,7 @@ class Router:
 
 
 def main():
-    # recebe parâmetros por linha de comando 
+    # recebe parâmetros por linha de comando
     parser = argparse.ArgumentParser('Parâmetros do roteador')
     parser.add_argument('--addr',
                         dest='addr',
