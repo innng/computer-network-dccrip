@@ -12,6 +12,13 @@
 #   }
 # }
 
+# link = {
+#   '127.0.1.21': {
+#       'weight': 4
+#       'ttl': 4
+#   }
+# }
+
 # links['127.0.1.1']['timer'] = self.setTimer(..)
 
 # route = {
@@ -103,10 +110,28 @@ def recvThread(self):
 #         'nextHop': 0
 #     },
 
+if sourceAddr[0] in self.linkTable:
+    currentWeight = int(self.linkTable[sourceAddr[0]]['weight'])
+    knownWeight = self.routingTable[ip]['weight']
+
+    if (weight + currentWeight) < knownWeight:
+        self.routingTable[ip]['weight'] = int(weight) + currentWeight
+        self.routingTable[ip]['hops'] = []
+        self.routingTable[ip]['hops'].append([sourceAddr[0]])
+    elif (weight + currentWeight) == knownWeight:
+        hopIPs = []
+        for hopIP in self.routingTable[ip]['hops']:
+            hopIPs.append(hopIP)
+        if sourceAddr[0] not in hopIPs:
+            self.routingTable[ip]['hops'].append(sourceAddr[0])
+
+self.routingTable[ip] = {}
+self.routingTable[ip]['weight'] = int(weight) + int(self.linkTable[sourceAddr[0]])
+self.routingTable[ip]['hops'] = []
+self.routingTable[ip]['hops'].append(sourceAddr[0])
+
+update = {'type': 'trace', 'source': self.host, 'destination': ip, 'hops': []}
+update['hops'].append(update['source'])
 
 
-
-
-
-
-
+traceBack = {'type': 'data', 'source': self.host, 'destination': msg['source'], 'payload': msg}
