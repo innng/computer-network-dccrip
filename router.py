@@ -60,7 +60,7 @@ class Router:
         recvMsg.start()
 
         # inicia o primeiro temporizador para enviar mensagens de update
-        self.updateTimer = self.setTimer(self.sendUpdate)
+        self.updateTimer = self.setTimer(self.controlPanel)
         self.updateTimer.start()
 
     # extraí informações sobre vizinhos
@@ -163,11 +163,12 @@ class Router:
             self.addRoute(ip, hop, weight)
         # se custo é maior, ignora
         elif self.routingTable[ip]['weight'] < weight:
-            pass
+            return change
         # se custo é igual, adiciona gateway
         else:
-            change = True
-            self.routingTable[ip]['hops'].append(hop)
+            if hop not in self.routingTable[ip]['hops']:
+                change = True
+                self.routingTable[ip]['hops'].append(hop)
 
         return change
 
@@ -200,12 +201,12 @@ class Router:
             self.sock.sendto(pkg, (ip, self.port))
 
         print('update', updMsg)
-        self.updateTimer.cancel()
-        self.updateTimer = self.setTimer(self.sendUpdate)
-        self.updateTimer.start()
+        # self.updateTimer.cancel()
+        # self.updateTimer = self.setTimer(self.sendUpdate)
+        # self.updateTimer.start()
 
-        # diminui o ttl dos vizinhos
-        self.controlLinks()
+        # # diminui o ttl dos vizinhos
+        # self.controlLinks()
 
     # constroi dicionário de distâncias, usando split horizon
     def buildDistanceDict(self, ip):
@@ -318,6 +319,14 @@ class Router:
             except BlockingIOError:
                 pass
 
+    # controla os temporizadores
+    def controlPanel(self):
+        self.sendUpdate()
+        self.controlLinks()
+
+        self.updateTimer = self.setTimer(self.controlPanel)
+        self.updateTimer.start()
+
     # controla os vizinhos baseado no ttl
     def controlLinks(self):
         # diminui o ttl de cada vizinho
@@ -333,8 +342,8 @@ class Router:
             self.rmvLink(ip)
 
     # retorna um objeto Timer
-    def setTimer(self, fn, argList=[], multiplier=1):
-        timer = threading.Timer(self.tout * multiplier, fn, argList)
+    def setTimer(self, fn, argList=[]):
+        timer = threading.Timer(self.tout, fn, argList)
         return timer
 
     # tratamento de erros
