@@ -52,6 +52,19 @@
     # }
 # }
 
+{
+    127.0.1.2: {
+        'weight': 4,
+        'hops': [127.0.1.3, 127.0.1.4],
+        'nextHop': 0
+    },
+
+}
+self.routingTable[ip]['weight'] = int(weight) + int(self.linkTable[sourceAddr[0]]['weight'])
+self.routingTable[ip]['hops'] = []
+self.routingTable[ip]['hops'].append(sourceAddr[0])
+self.routingTable[ip]['nextHop'] = 0
+
 # Routing Table ?
 # {
 #     '127.0.1.2': {

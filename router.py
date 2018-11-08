@@ -119,6 +119,7 @@ class Router:
 
         # remove todos os caminhos que passavam por esse ip
         self.rmvRoute(ip)
+        self.sendUpdate()
 
     # adiciona um caminho à tabela de roteamento
     def addRoute(self, ip, hop, weight):
