@@ -6,6 +6,7 @@ import socket
 import json
 import sys
 
+import pprint
 
 class Router:
     port = 55151        # porta padrão
@@ -60,7 +61,7 @@ class Router:
         recvMsg.start()
 
         # inicia o primeiro temporizador para enviar mensagens de update
-        self.updateTimer = self.setTimer(self.controlPanel)
+        self.updateTimer = self.setTimer(self.sendUpdate)
         self.updateTimer.start()
 
     # extraí informações sobre vizinhos
@@ -92,8 +93,10 @@ class Router:
             self.updateTimer.cancel()
 
         elif cmd[0] == 'log':
-            print('links -->', self.linkTable)
-            print('rotas -->', self.routingTable)
+            print('links -->',end=" ")
+            pprint.pprint(self.linkTable)
+            print('rotas -->',end=" ")
+            pprint.pprint(self.routingTable)
 
         else:
             print('Comando inválido')
@@ -108,6 +111,7 @@ class Router:
 
     # remove vizinho
     def rmvLink(self, ip):
+        print('rmvLink deleted node', ip)
         del self.linkTable[ip]
 
         # testa se o ip está na tabela como destino
@@ -147,6 +151,7 @@ class Router:
 
         # remove os nodos inalcançáveis
         for i in range(len(ips)):
+            print('rmvRoute deleted node', ip)
             del self.routingTable[ips[i]]
 
         return change
@@ -158,6 +163,7 @@ class Router:
 
         # se custo é menor, substitui
         if self.routingTable[ip]['weight'] > weight:
+            print('updateRoute deleted node', ip)
             change = True
             del self.routingTable[ip]
             self.addRoute(ip, hop, weight)
@@ -192,21 +198,24 @@ class Router:
 
     # envia mensagem de update
     def sendUpdate(self):
+        updMsg = None
         for ip in self.linkTable:
             distances = self.buildDistanceDict(ip)
             updMsg = self.buildMessage('update', self.host, ip, dist=distances)
-
+            debugPrint = updMsg
             updMsg = json.dumps(updMsg)
             pkg = bytes(updMsg, 'ascii')
+            if updMsg != None: 
+                print("Update sent: ", end='')
+                pprint.pprint(debugPrint)
             self.sock.sendto(pkg, (ip, self.port))
 
-        print('update', updMsg)
-        # self.updateTimer.cancel()
-        # self.updateTimer = self.setTimer(self.sendUpdate)
-        # self.updateTimer.start()
+        self.updateTimer.cancel()
+        self.updateTimer = self.setTimer(self.sendUpdate)
+        self.updateTimer.start()
 
-        # # diminui o ttl dos vizinhos
-        # self.controlLinks()
+        # diminui o ttl dos vizinhos
+        self.controlLinks()
 
     # constroi dicionário de distâncias, usando split horizon
     def buildDistanceDict(self, ip):
@@ -240,36 +249,49 @@ class Router:
     # trata as mensagens recebidas
     def parseMessage(self, data, sourceAddr):
         msg = json.loads(data.decode())
-
-        # mensagem de update
         if msg['type'] == 'update':
-            change = False
-            print(json.dumps(msg))
-            # vê se o link existe na tabela
-            if sourceAddr[0] not in self.linkTable:
-                return
-
-            # pega os IPs e pesos do vetor distances da msg de update
-            safe = []
+            print("Update received: ", end='')
+            pprint.pprint(msg)
+            # Pega os IPs e pesos do vetor distances da msg de update
             for ip, weight in msg['distances'].items():
-                safe.append(ip)
-                # já está na tabela de roteamento
+                # Já está na tabela de roteamento
                 if ip in self.routingTable:
-                    change = self.updateRoute(ip, sourceAddr[0], weight)
-                # não está na tabela de roteamento
+                    # Ve se o link existe na tabela
+                    if sourceAddr[0] in self.linkTable:
+                        currentWeight = int(self.linkTable[sourceAddr[0]]['weight'])
+                        knownWeight = self.routingTable[ip]['weight']
+                        if (weight + currentWeight) < knownWeight:
+                            self.routingTable[ip]['weight'] = int(weight) + currentWeight
+                            self.routingTable[ip]['hops'] = []
+                            self.routingTable[ip]['hops'].append([sourceAddr[0]]['weight'])
+                        elif (weight + currentWeight) == knownWeight:
+                            hopIPs = []
+                            for hopIP in self.routingTable[ip]['hops']:
+                                hopIPs.append(hopIP)
+                            if sourceAddr[0] not in hopIPs:
+                                self.routingTable[ip]['hops'].append(sourceAddr[0])
+                # Não está na tabela de roteamento
                 else:
-                    change = True
-                    self.addRoute(ip, sourceAddr[0], weight)
-
-            # remove rotas não citadas no update
-            change = self.rmvRoute(sourceAddr[0], safe)
-
-            # resetar o temporizador do vizinho
-            self.linkTable[sourceAddr[0]]['ttl'] = 4
-
-            # envia mensagem de update
-            if change:
-                self.sendUpdate()
+                    self.routingTable[ip] = {}
+                    self.routingTable[ip]['weight'] = int(weight) + int(self.linkTable[sourceAddr[0]]['weight'])
+                    self.routingTable[ip]['hops'] = []
+                    self.routingTable[ip]['hops'].append(sourceAddr[0])
+                #? update TTL /\/\/\/\/\/\/\ não entendi como é pra fazer sem aquele segundo campo com o 4
+        elif msg['type'] == 'data':
+            if msg['destination'] == self.host:
+                # Esse nó é o destino, mensagem recebida.
+                print("Mensagem recebida:", msg['payload'])
+            else:
+                self.forwardMessage(msg) #? Não era simplesmene enviar pro nextHop como mensagem comum?
+        elif msg['type'] == 'trace':
+            # Esse nó é o destino do trace
+            if msg['destination'] == self.host:
+                traceBack = {'type': 'data', 'source': self.host, 'destination': msg['source'], 'payload': msg}
+                self.forwardMessage(traceBack)
+            # Esse não é o nó destino, encaminha o trace
+            else:
+                msg['hops'].append(self.host)
+                self.forwardMessage(msg)
 
         # mensagem do tipo dados
         elif msg['type'] == 'data':
@@ -319,14 +341,6 @@ class Router:
             except BlockingIOError:
                 pass
 
-    # controla os temporizadores
-    def controlPanel(self):
-        self.sendUpdate()
-        self.controlLinks()
-
-        self.updateTimer = self.setTimer(self.controlPanel)
-        self.updateTimer.start()
-
     # controla os vizinhos baseado no ttl
     def controlLinks(self):
         # diminui o ttl de cada vizinho
@@ -342,8 +356,8 @@ class Router:
             self.rmvLink(ip)
 
     # retorna um objeto Timer
-    def setTimer(self, fn, argList=[]):
-        timer = threading.Timer(self.tout, fn, argList)
+    def setTimer(self, fn, argList=[], multiplier=1):
+        timer = threading.Timer(self.tout * multiplier, fn, argList)
         return timer
 
     # tratamento de erros
